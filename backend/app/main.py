@@ -1,9 +1,10 @@
-import logging
-import json
 from fastapi import FastAPI
 from pydantic import BaseModel
 import boto3
 import os
+import json
+import logging
+from mangum import Mangum
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -60,3 +61,6 @@ def get_incidents():
 @app.get("/")
 def health_check():
     return {"status": "SafeLink Agent Core is running"}
+
+# ===== Mangum handler for AWS Lambda =====
+handler = Mangum(app)
