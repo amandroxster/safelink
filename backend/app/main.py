@@ -15,9 +15,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="SafeLink Agent Core - AWS Bedrock AI")
 
 # ===== CORS Configuration =====
-origins = [
-    "*"  # Allow all origins for development; restrict in production
-]
+origins = ["*"]  # Allow all origins for development; restrict in production
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -32,8 +30,8 @@ SESSION = boto3.Session(region_name=REGION)
 BEDROCK = SESSION.client("bedrock-runtime", region_name=REGION)
 
 # ===== Inference Profile Configuration =====
-# Use your inference profile ID from `aws bedrock list-inference-profiles`
-MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "us.meta.llama3-2-1b-instruct-v1:0")
+# Use the correct inference profile ID for Meta Llama 3.1 70B Instruct
+MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "us.meta.llama3-1-70b-instruct-v1:0")
 
 # ===== Input Schema =====
 class IncidentReport(BaseModel):
@@ -49,9 +47,7 @@ def call_bedrock(prompt_text: str) -> str:
     Handles extraction of response text from Bedrock output.
     """
     try:
-        body = json.dumps({
-            "prompt": prompt_text
-        })
+        body = json.dumps({"prompt": prompt_text})
 
         response = BEDROCK.invoke_model(
             modelId=MODEL_ID,
@@ -63,29 +59,45 @@ def call_bedrock(prompt_text: str) -> str:
         raw_output = json.loads(response["body"].read())
         logger.info("Bedrock raw output: %s", raw_output)
 
-        # For Llama3, text may be under 'choices[0].message.content'
+        # Safer response parsing
         content = ""
-        if "choices" in raw_output:
+        if "results" in raw_output:
+            content = raw_output["results"][0].get("outputText", "")
+        elif "choices" in raw_output:
             try:
                 content = raw_output["choices"][0]["message"]["content"]
             except (KeyError, IndexError, TypeError):
                 logger.warning("Unexpected Bedrock response structure.")
+
         return content.strip()
+
     except Exception as e:
         logger.error("Bedrock call failed: %s", e)
         return "Error: Unable to process request"
 
 # ===== Tools =====
 def severity_tool(message: str) -> str:
-    prompt = f"You are an AI assistant for incident management.\nClassify the severity of this incident as High, Medium, or Low:\nIncident: {message}"
+    prompt = (
+        "You are an AI assistant for incident management.\n"
+        "Classify the severity of this incident as High, Medium, or Low:\n"
+        f"Incident: {message}"
+    )
     return call_bedrock(prompt)
 
 def summarization_tool(message: str) -> str:
-    prompt = f"You are an AI assistant for incident management.\nSummarize this incident in one concise sentence for responders:\nIncident: {message}"
+    prompt = (
+        "You are an AI assistant for incident management.\n"
+        "Summarize this incident in one concise sentence for responders:\n"
+        f"Incident: {message}"
+    )
     return call_bedrock(prompt)
 
 def citizen_guidance_tool(message: str) -> str:
-    prompt = f"You are an AI assistant for incident management.\nProvide safety guidance for citizens regarding this incident:\nIncident: {message}"
+    prompt = (
+        "You are an AI assistant for incident management.\n"
+        "Provide safety guidance for citizens regarding this incident:\n"
+        f"Incident: {message}"
+    )
     return call_bedrock(prompt)
 
 # ===== API Routes =====
