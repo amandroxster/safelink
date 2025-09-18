@@ -16,8 +16,8 @@ app = FastAPI(title="SafeLink Agent Core - AWS Bedrock AI")
 
 # ===== CORS Configuration =====
 origins = [
-    "*",  # Allow all origins for development
-    # "https://your-frontend-domain.com"  # For production, specify your frontend domains
+    "*",  # Allow all origins (development)
+    # "https://your-frontend-domain.com"  # For production
 ]
 app.add_middleware(
     CORSMiddleware,
@@ -31,34 +31,13 @@ app.add_middleware(
 REGION = os.getenv("AWS_REGION", "us-east-2")
 SESSION = boto3.Session(region_name=REGION)
 BEDROCK = SESSION.client("bedrock-runtime", region_name=REGION)
-BEDROCK_API = SESSION.client("bedrock", region_name=REGION)
 
 # ===== Inference Profile Configuration =====
-INFERENCE_PROFILE_ARN = os.getenv(
-    "BEDROCK_INFERENCE_PROFILE_ARN",
-    "arn:aws:bedrock:us-east-2:158491568534:inference-profile/us.meta.llama3-2-1b-instruct-v1:0"
+# This must be the inferenceProfileId, not the modelArn
+MODEL_ID = os.getenv(
+    "BEDROCK_MODEL_ID",
+    "us.meta.llama3-2-1b-instruct-v1:0"  # Example: Llama3 2-1B Instruct profile ID
 )
-
-def get_model_arn(profile_arn: str, region: str) -> str:
-    """
-    Returns the model ARN from the inference profile that matches the current region.
-    """
-    try:
-        response = BEDROCK_API.list_inference_profiles()
-        profile = next(
-            p for p in response["inferenceProfileSummaries"]
-            if p["inferenceProfileArn"] == profile_arn
-        )
-        model_arn = next(
-            m["modelArn"] for m in profile["models"] if region in m["modelArn"]
-        )
-        return model_arn
-    except Exception as e:
-        logger.error("Failed to get model ARN from inference profile: %s", e)
-        raise
-
-# ===== Resolve MODEL_ID dynamically =====
-MODEL_ID = get_model_arn(INFERENCE_PROFILE_ARN, REGION)
 
 # ===== Input Schema =====
 class IncidentReport(BaseModel):
@@ -69,6 +48,9 @@ INCIDENT_QUEUE = []
 
 # ===== Bedrock Call Helper =====
 def call_bedrock(prompt: str) -> str:
+    """
+    Calls AWS Bedrock using the inference profile ID.
+    """
     try:
         body = json.dumps({
             "text": prompt,
@@ -76,7 +58,7 @@ def call_bedrock(prompt: str) -> str:
             "temperature": 0.3
         })
         response = BEDROCK.invoke_model(
-            modelId=MODEL_ID,
+            modelId=MODEL_ID,          # Must be inference profile ID
             contentType="application/json",
             accept="application/json",
             body=body
