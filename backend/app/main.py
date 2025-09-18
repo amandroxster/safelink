@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 import boto3
+import json
 import os
 import logging
 from mangum import Mangum
@@ -9,60 +10,64 @@ from mangum import Mangum
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ===== FastAPI App =====
-app = FastAPI(title="SafeLink Agent Core - AWS Native")
+app = FastAPI(title="SafeLink Agent Core - Anthropic Claude 3.5 Sonnet v2")
 
 # ===== CORS Middleware =====
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Replace "*" with your Amplify frontend URL for security
+    allow_origins=["*"],  # Update with Amplify domain if needed
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ===== AWS Clients =====
+# ===== AWS Bedrock Client for Anthropic =====
 region = os.getenv("AWS_REGION", "us-east-2")
-comprehend = boto3.client("comprehend", region_name=region)
+session = boto3.Session(region_name=region)
+bedrock = session.client("bedrock-runtime")
 
 # ===== Input Schema =====
 class IncidentReport(BaseModel):
     message: str
 
-# ===== In-memory Incident Queue =====
+# ===== In-Memory Incident Queue =====
 INCIDENT_QUEUE = []
 
-# ===== Tools using AWS Comprehend =====
+# ===== AI Call Helper =====
+def call_anthropic(prompt: str) -> str:
+    """
+    Calls Anthropic Claude 3.5 Sonnet v2 via Amazon Bedrock.
+    """
+    try:
+        body = json.dumps({
+            "prompt": prompt,
+            "max_tokens_to_sample": 100,
+            "temperature": 0.3
+        })
+        response = bedrock.invoke_model(
+            modelId="anthropic.claude-3.5-sonnet-v2",  # Claude 3.5 Sonnet v2
+            contentType="application/json",
+            accept="application/json",
+            body=body
+        )
+        model_output = json.loads(response["body"].read())
+        return model_output.get("completion", "").strip()
+    except Exception as e:
+        logger.error("Anthropic call failed: %s", e)
+        return "Error: Unable to process request"
+
+# ===== Tools =====
 def severity_tool(message: str) -> str:
-    keywords_high = ["fire", "flood", "accident", "critical", "injury"]
-    keywords_medium = ["minor", "moderate", "small"]
-    
-    msg_lower = message.lower()
-    if any(word in msg_lower for word in keywords_high):
-        return "High"
-    elif any(word in msg_lower for word in keywords_medium):
-        return "Medium"
-    else:
-        return "Low"
+    prompt = f"Classify the severity of this emergency as High, Medium, or Low:\nIncident: {message}"
+    return call_anthropic(prompt)
 
 def summarization_tool(message: str) -> str:
-    try:
-        resp = comprehend.detect_key_phrases(Text=message, LanguageCode="en")
-        phrases = [kp["Text"] for kp in resp.get("KeyPhrases", [])]
-        summary = ", ".join(phrases[:5])
-        return f"Summary: {summary}" if summary else message[:50]
-    except Exception as e:
-        logger.error("Comprehend summarization failed: %s", e)
-        return message[:50]
+    prompt = f"Summarize this emergency for first responders in one concise sentence:\nIncident: {message}"
+    return call_anthropic(prompt)
 
 def citizen_guidance_tool(message: str) -> str:
-    severity = severity_tool(message)
-    if severity == "High":
-        return "Evacuate immediately and call 911."
-    elif severity == "Medium":
-        return "Be cautious and monitor updates from authorities."
-    else:
-        return "Stay alert, no immediate danger detected."
+    prompt = f"Provide clear safety instructions for a citizen facing this emergency:\nIncident: {message}"
+    return call_anthropic(prompt)
 
 # ===== API Routes =====
 @app.post("/incident")
