@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import boto3
 import json
@@ -11,7 +12,20 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ===== FastAPI App =====
-app = FastAPI(title="SafeLink Agent Core - AWS Titan AI")
+app = FastAPI(title="SafeLink Agent Core - AWS Bedrock AI")
+
+# ===== CORS Configuration =====
+origins = [
+    "*",  # Allow all origins for development
+    # "https://your-frontend-domain.com"  # For production, specify your frontend domains
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ===== AWS Bedrock Client =====
 REGION = os.getenv("AWS_REGION", "us-east-2")
@@ -19,34 +33,22 @@ SESSION = boto3.Session(region_name=REGION)
 BEDROCK = SESSION.client("bedrock-runtime", region_name=REGION)
 BEDROCK_API = SESSION.client("bedrock", region_name=REGION)
 
-# ===== Inference Profile Config =====
-# Set the profile ARN via environment variable
+# ===== Inference Profile Configuration =====
 INFERENCE_PROFILE_ARN = os.getenv(
     "BEDROCK_INFERENCE_PROFILE_ARN",
     "arn:aws:bedrock:us-east-2:158491568534:inference-profile/us.meta.llama3-2-1b-instruct-v1:0"
 )
 
-# ===== Input Schema =====
-class IncidentReport(BaseModel):
-    message: str
-
-# ===== In-memory incident queue (POC) =====
-INCIDENT_QUEUE = []
-
-# ===== Helper: Get model ARN from inference profile =====
 def get_model_arn(profile_arn: str, region: str) -> str:
     """
     Returns the model ARN from the inference profile that matches the current region.
     """
     try:
-        # List all inference profiles
         response = BEDROCK_API.list_inference_profiles()
         profile = next(
             p for p in response["inferenceProfileSummaries"]
             if p["inferenceProfileArn"] == profile_arn
         )
-
-        # Pick the first model ARN that contains the region string
         model_arn = next(
             m["modelArn"] for m in profile["models"] if region in m["modelArn"]
         )
@@ -55,20 +57,26 @@ def get_model_arn(profile_arn: str, region: str) -> str:
         logger.error("Failed to get model ARN from inference profile: %s", e)
         raise
 
-# Resolve MODEL_ID dynamically
+# ===== Resolve MODEL_ID dynamically =====
 MODEL_ID = get_model_arn(INFERENCE_PROFILE_ARN, REGION)
+
+# ===== Input Schema =====
+class IncidentReport(BaseModel):
+    message: str
+
+# ===== In-memory incident queue =====
+INCIDENT_QUEUE = []
 
 # ===== Bedrock Call Helper =====
 def call_bedrock(prompt: str) -> str:
     try:
         body = json.dumps({
-            "text": prompt,  # Titan/Nova Lite expects 'text' key
+            "text": prompt,
             "max_tokens": 150,
             "temperature": 0.3
         })
         response = BEDROCK.invoke_model(
             modelId=MODEL_ID,
-            inferenceProfileArn=INFERENCE_PROFILE_ARN,
             contentType="application/json",
             accept="application/json",
             body=body
