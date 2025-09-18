@@ -4,8 +4,8 @@ phases:
   pre_build:
     commands:
       - echo Logging in to Amazon ECR...
-      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin 158491568534.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
-      - REPOSITORY_URI=123456789012.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/safelink-backend
+      - aws ecr get-login-password --region us-east-2 | docker login --username AWS --password-stdin 123456789012.dkr.ecr.us-east-2.amazonaws.com
+      - REPOSITORY_URI=123456789012.dkr.ecr.us-east-2.amazonaws.com/safelink-backend
       - IMAGE_TAG=latest
   build:
     commands:
