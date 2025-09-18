@@ -29,6 +29,9 @@ REGION = os.getenv("AWS_REGION", "us-east-2")
 SESSION = boto3.Session(region_name=REGION)
 BEDROCK = SESSION.client("bedrock-runtime", region_name=REGION)
 
+logger.info("AWS Bedrock client initialized in region: %s", REGION)
+logger.info("AWS Bedrock client initialized in SESSION: %s", SESSION)
+
 # ===== Inference Profile Configuration =====
 # Use the correct inference profile ID for Meta Llama 3.1 70B Instruct
 MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "us.meta.llama3-1-70b-instruct-v1:0")
@@ -103,6 +106,7 @@ def citizen_guidance_tool(message: str) -> str:
 # ===== API Routes =====
 @app.post("/incident")
 def handle_incident(report: IncidentReport):
+    logger.info("request", report)
     severity = severity_tool(report.message)
     summary = summarization_tool(report.message)
     guidance = citizen_guidance_tool(report.message)
