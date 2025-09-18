@@ -7,7 +7,7 @@ import os
 app = FastAPI(title="SafeLink Agent Core")
 
 # ===== AWS Bedrock Client =====
-session = boto3.Session(region_name=os.getenv("AWS_REGION", "us-east-1"))
+session = boto3.Session(region_name=os.getenv("AWS_REGION", "us-east-2"))
 bedrock = session.client("bedrock-runtime")
 
 # ===== Input Schema =====
