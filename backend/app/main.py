@@ -16,8 +16,8 @@ app = FastAPI(title="SafeLink Agent Core - AWS Bedrock AI")
 
 # ===== CORS Configuration =====
 origins = [
-    "*",  # Allow all origins (development)
-    # "https://your-frontend-domain.com"  # For production
+    "*",  # Allow all origins for development
+    # "https://your-frontend-domain.com"  # Restrict in production
 ]
 app.add_middleware(
     CORSMiddleware,
@@ -33,10 +33,10 @@ SESSION = boto3.Session(region_name=REGION)
 BEDROCK = SESSION.client("bedrock-runtime", region_name=REGION)
 
 # ===== Inference Profile Configuration =====
-# This must be the inferenceProfileId, not the modelArn
+# Use the inferenceProfileId from `aws bedrock list-inference-profiles`
 MODEL_ID = os.getenv(
     "BEDROCK_MODEL_ID",
-    "us.meta.llama3-2-1b-instruct-v1:0"  # Example: Llama3 2-1B Instruct profile ID
+    "us.meta.llama3-2-1b-instruct-v1:0"  # Example: Llama3 2-1B Instruct
 )
 
 # ===== Input Schema =====
@@ -47,22 +47,23 @@ class IncidentReport(BaseModel):
 INCIDENT_QUEUE = []
 
 # ===== Bedrock Call Helper =====
-def call_bedrock(prompt: str) -> str:
+def call_bedrock(prompt_text: str) -> str:
     """
-    Calls AWS Bedrock using the inference profile ID.
+    Calls AWS Bedrock using a Meta Llama3 inference profile.
     """
     try:
+        # Llama3 expects only "prompt" key
         body = json.dumps({
-            "text": prompt,
-            "max_tokens": 150,
-            "temperature": 0.3
+            "prompt": prompt_text
         })
+
         response = BEDROCK.invoke_model(
-            modelId=MODEL_ID,          # Must be inference profile ID
+            modelId=MODEL_ID,          # inference profile ID
             contentType="application/json",
             accept="application/json",
             body=body
         )
+
         output = json.loads(response["body"].read())
         return output.get("outputText", "").strip()
     except Exception as e:
