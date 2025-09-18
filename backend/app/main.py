@@ -19,7 +19,7 @@ session = boto3.Session(region_name=region)
 bedrock = session.client("bedrock-runtime", region_name=region)
 
 # Use publicly available Titan model
-MODEL_ID = "amazon.titan-text-1"
+MODEL_ID = "amazon.nova-lite-v1:0"
 
 # ===== Input Schema =====
 class IncidentReport(BaseModel):
