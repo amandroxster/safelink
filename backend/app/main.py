@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
+from fastapi.middleware.cors import CORSMiddleware
 import boto3
 import os
 import logging
@@ -8,28 +9,31 @@ from mangum import Mangum
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# ===== FastAPI App =====
 app = FastAPI(title="SafeLink Agent Core - AWS Native")
 
-# Initialize AWS clients
+# ===== CORS Middleware =====
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Replace "*" with your Amplify frontend URL for security
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ===== AWS Clients =====
 region = os.getenv("AWS_REGION", "us-east-2")
 comprehend = boto3.client("comprehend", region_name=region)
 
-# Input schema
+# ===== Input Schema =====
 class IncidentReport(BaseModel):
     message: str
 
-# In-memory incident queue for POC
+# ===== In-memory Incident Queue =====
 INCIDENT_QUEUE = []
 
 # ===== Tools using AWS Comprehend =====
 def severity_tool(message: str) -> str:
-    """
-    Classify severity based on keywords or sentiment.
-    Simple POC logic:
-      - HIGH: contains fire, flood, accident, critical
-      - MEDIUM: minor injury, small fire, moderate
-      - LOW: noise complaint, lost item
-    """
     keywords_high = ["fire", "flood", "accident", "critical", "injury"]
     keywords_medium = ["minor", "moderate", "small"]
     
@@ -42,9 +46,6 @@ def severity_tool(message: str) -> str:
         return "Low"
 
 def summarization_tool(message: str) -> str:
-    """
-    Simple summarization using Comprehend key phrases.
-    """
     try:
         resp = comprehend.detect_key_phrases(Text=message, LanguageCode="en")
         phrases = [kp["Text"] for kp in resp.get("KeyPhrases", [])]
@@ -55,9 +56,6 @@ def summarization_tool(message: str) -> str:
         return message[:50]
 
 def citizen_guidance_tool(message: str) -> str:
-    """
-    Generate basic citizen guidance based on severity.
-    """
     severity = severity_tool(message)
     if severity == "High":
         return "Evacuate immediately and call 911."
@@ -92,5 +90,5 @@ def get_incidents():
 def health_check():
     return {"status": "SafeLink Agent Core is running"}
 
-# ===== Mangum handler for AWS Lambda =====
+# ===== Mangum Handler for AWS Lambda =====
 handler = Mangum(app)
