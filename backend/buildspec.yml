@@ -1,19 +1,23 @@
 version: 0.2
 
+env:
+  variables:
+    AWS_DEFAULT_REGION: us-east-2
+    REPOSITORY_URI: 158491568534.dkr.ecr.us-east-2.amazonaws.com/safelink-backend
+    IMAGE_TAG: latest
+
 phases:
   pre_build:
     commands:
       - echo Logging in to Amazon ECR...
-      - aws ecr get-login-password --region us-east-2 | docker login --username AWS --password-stdin 158491568534.dkr.ecr.us-east-2.amazonaws.com
-      - REPOSITORY_URI=158491568534.dkr.ecr.us-east-2.amazonaws.com/safelink-backend
-      - IMAGE_TAG=latest
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $REPOSITORY_URI
   build:
     commands:
-      - echo Building Docker image...
+      - echo Building Docker image for Lambda...
       - cd backend
       - docker build -t $REPOSITORY_URI:$IMAGE_TAG .
   post_build:
     commands:
       - echo Pushing Docker image to ECR...
       - docker push $REPOSITORY_URI:$IMAGE_TAG
-      - echo Build completed
+      - echo Build completed successfully

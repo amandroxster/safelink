@@ -1,8 +1,10 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
+from mangum import Mangum 
 import boto3
 import json
 import os
+
 
 app = FastAPI(title="SafeLink Agent Core")
 
@@ -72,3 +74,5 @@ def get_incidents():
 @app.get("/")
 def health_check():
     return {"status": "SafeLink Agent Core is running"}
+
+handler = Mangum(app)
