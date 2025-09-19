@@ -50,13 +50,12 @@ INCIDENT_QUEUE = []
 # ===== Bedrock Helper =====
 def call_bedrock(prompt: str) -> str:
     """
-    Calls AWS Bedrock using the inference profile.
-    Avoids using max_tokens; prompt instructs model to limit output.
-    Trims output to 500 chars to avoid huge responses.
+    Calls AWS Bedrock using Llama3 Instruct.
+    Uses 'inputText' key, trims output to 500 chars.
     """
     logger.info("➡️ Sending prompt to Bedrock: %s", prompt)
     try:
-        body = json.dumps({"prompt": prompt})
+        body = json.dumps({"inputText": prompt})  # <-- correct key
         response = BEDROCK.invoke_model(
             modelId=MODEL_ID,
             contentType="application/json",
@@ -76,28 +75,16 @@ def call_bedrock(prompt: str) -> str:
 
 # ===== Tools =====
 def severity_tool(message: str) -> str:
-    prompt = (
-        f"Classify the severity of this incident in ONE word (High, Medium, Low) ONLY: {message}"
-    )
-    result = call_bedrock(prompt)
-    logger.info("Severity result: %s", result)
-    return result
+    prompt = f"Classify the severity of this incident in ONE word (High, Medium, Low) ONLY: {message}"
+    return call_bedrock(prompt)
 
 def summarization_tool(message: str) -> str:
-    prompt = (
-        f"Summarize this incident in ONE short sentence, concise for responders: {message}"
-    )
-    result = call_bedrock(prompt)
-    logger.info("Summary result: %s", result)
-    return result
+    prompt = f"Summarize this incident in ONE short sentence, concise for responders: {message}"
+    return call_bedrock(prompt)
 
 def citizen_guidance_tool(message: str) -> str:
-    prompt = (
-        f"Provide very brief citizen safety guidance in 1-2 sentences: {message}"
-    )
-    result = call_bedrock(prompt)
-    logger.info("Guidance result: %s", result)
-    return result
+    prompt = f"Provide very brief citizen safety guidance in 1-2 sentences: {message}"
+    return call_bedrock(prompt)
 
 # ===== API Routes =====
 @app.post("/incident")
@@ -119,8 +106,6 @@ def handle_incident(report: IncidentReport):
 @app.get("/incidents")
 def get_incidents():
     logger.info("Fetching all incidents, count: %d", len(INCIDENT_QUEUE))
-    for i, incident in enumerate(INCIDENT_QUEUE, start=1):
-        logger.info("Incident %d: %s", i, incident)
     return INCIDENT_QUEUE
 
 @app.get("/")
@@ -142,4 +127,4 @@ def bedrock_test(payload: dict):
 # ===== Lambda Handler =====
 handler = Mangum(app)
 logger.info("Mangum handler initialized")
-logger.info("✅ FastAPI app initialized successfully")
+logger.info("🚀 FastAPI app is ready to serve requests")
