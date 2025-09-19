@@ -25,7 +25,7 @@ logger.info("✅ Logging configured successfully")
 app = FastAPI(title="SafeLink Agent Core - AWS Bedrock AI")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # dev only, lock down in production
+    allow_origins=["*"],  # dev only, restrict in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -35,7 +35,7 @@ app.add_middleware(
 REGION = os.getenv("AWS_REGION", "us-east-2")
 MODEL_ID = os.getenv(
     "BEDROCK_MODEL_ID",
-    "us.meta.llama3-1-70b-instruct-v1:0"  # keep the working model
+    "us.meta.llama3-1-70b-instruct-v1:0"  # keep your working model
 )
 BEDROCK = boto3.client("bedrock-runtime", region_name=REGION)
 logger.info("✅ Bedrock client initialized in %s", REGION)
@@ -48,17 +48,15 @@ class IncidentReport(BaseModel):
 INCIDENT_QUEUE = []
 
 # ===== Bedrock Helper =====
-def call_bedrock(prompt: str, max_tokens: int = 100) -> str:
+def call_bedrock(prompt: str) -> str:
     """
     Calls AWS Bedrock using the inference profile.
-    Limits output length to prevent massive responses.
+    Avoids using max_tokens; prompt instructs model to limit output.
+    Trims output to 500 chars to avoid huge responses.
     """
+    logger.info("➡️ Sending prompt to Bedrock: %s", prompt)
     try:
-        body = json.dumps({
-            "prompt": prompt,
-            "max_tokens": max_tokens,
-            "temperature": 0.3
-        })
+        body = json.dumps({"prompt": prompt})
         response = BEDROCK.invoke_model(
             modelId=MODEL_ID,
             contentType="application/json",
@@ -66,10 +64,10 @@ def call_bedrock(prompt: str, max_tokens: int = 100) -> str:
             body=body
         )
         raw_output = json.loads(response["body"].read())
-        # extract outputText if present
         output_text = raw_output.get("results", [{}])[0].get("outputText", "")
         if len(output_text) > 500:
             output_text = output_text[:500] + "..."
+        logger.info("⬅️ Bedrock response: %s", output_text)
         return output_text.strip()
     except Exception as e:
         logger.error("❌ Bedrock call failed: %s", e)
@@ -78,13 +76,28 @@ def call_bedrock(prompt: str, max_tokens: int = 100) -> str:
 
 # ===== Tools =====
 def severity_tool(message: str) -> str:
-    return call_bedrock(f"Classify the severity (High, Medium, Low) of this incident: {message}", max_tokens=10)
+    prompt = (
+        f"Classify the severity of this incident in ONE word (High, Medium, Low) ONLY: {message}"
+    )
+    result = call_bedrock(prompt)
+    logger.info("Severity result: %s", result)
+    return result
 
 def summarization_tool(message: str) -> str:
-    return call_bedrock(f"Summarize this incident in one short sentence: {message}", max_tokens=50)
+    prompt = (
+        f"Summarize this incident in ONE short sentence, concise for responders: {message}"
+    )
+    result = call_bedrock(prompt)
+    logger.info("Summary result: %s", result)
+    return result
 
 def citizen_guidance_tool(message: str) -> str:
-    return call_bedrock(f"Provide concise citizen safety guidance for this incident: {message}", max_tokens=50)
+    prompt = (
+        f"Provide very brief citizen safety guidance in 1-2 sentences: {message}"
+    )
+    result = call_bedrock(prompt)
+    logger.info("Guidance result: %s", result)
+    return result
 
 # ===== API Routes =====
 @app.post("/incident")
@@ -100,25 +113,27 @@ def handle_incident(report: IncidentReport):
         "citizen_guidance": guidance
     }
     INCIDENT_QUEUE.append(incident)
-    logger.info("Incident processed: %s", incident)
+    logger.info("Incident processed and added to queue: %s", incident)
     return incident
 
 @app.get("/incidents")
 def get_incidents():
+    logger.info("Fetching all incidents, count: %d", len(INCIDENT_QUEUE))
+    for i, incident in enumerate(INCIDENT_QUEUE, start=1):
+        logger.info("Incident %d: %s", i, incident)
     return INCIDENT_QUEUE
 
 @app.get("/")
 def health_check():
+    logger.info("Health check endpoint called")
     return {"status": "SafeLink Agent Core is running"}
 
 # ===== Bedrock Test Endpoint =====
 @app.post("/bedrock-test")
 def bedrock_test(payload: dict):
     prompt = payload.get("prompt", "Say hello from Bedrock!")
-    logger.info("➡️ Sending prompt to Bedrock: %s", prompt)
     try:
-        text = call_bedrock(prompt, max_tokens=100)
-        logger.info("⬅️ Bedrock response: %s", text)
+        text = call_bedrock(prompt)
         return {"bedrock_text": text}
     except Exception as e:
         logger.error("❌ Bedrock test failed: %s", e)
@@ -127,4 +142,4 @@ def bedrock_test(payload: dict):
 # ===== Lambda Handler =====
 handler = Mangum(app)
 logger.info("Mangum handler initialized")
-logger.info("🚀 FastAPI app is ready to handle requests")
+logger.info("✅ FastAPI app initialized successfully")
