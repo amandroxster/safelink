@@ -7,7 +7,7 @@ function App() {
   return (
     <Router>
       <div style={{ padding: 20 }}>
-        <h1>🚨 SafeLink POC</h1>
+        <h1>🚨 SafeLink 🚨 </h1>
         <nav style={{ marginBottom: 20 }}>
           <Link to="/citizen" style={{ marginRight: 10 }}>Citizen</Link>
           <Link to="/responder">Responder</Link>
