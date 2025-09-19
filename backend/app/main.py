@@ -51,13 +51,13 @@ INCIDENT_QUEUE = []
 def call_bedrock(prompt: str) -> str:
     """
     Calls AWS Bedrock Llama3-Instruct model.
-    Only sends {"prompt": "..."}.
-    Ensures model returns a short response.
-    Trims output to 500 chars to avoid huge responses.
+    Uses the correct key 'generation' for output text.
+    Ensures short responses via prompt instructions.
+    Trims output to 500 chars max.
     """
     logger.info("➡️ Sending prompt to Bedrock: %s", prompt)
     try:
-        body = json.dumps({"prompt": prompt})  # key must be 'prompt'
+        body = json.dumps({"prompt": prompt})
         response = BEDROCK.invoke_model(
             modelId=MODEL_ID,
             contentType="application/json",
@@ -65,17 +65,13 @@ def call_bedrock(prompt: str) -> str:
             body=body
         )
 
-        # Log full raw response for debugging
         raw_output = json.loads(response["body"].read())
         logger.info("Full raw Bedrock response: %s", raw_output)
 
-        # Safe extraction of output text
-        output_text = ""
-        if "results" in raw_output and len(raw_output["results"]) > 0:
-            output_text = raw_output["results"][0].get("outputText", "")
-
+        # Correct extraction
+        output_text = raw_output.get("generation", "").strip()
         if not output_text:
-            logger.warning("Bedrock returned empty outputText")
+            logger.warning("Bedrock returned empty generation")
             output_text = "No response from model."
 
         # Trim excessively long outputs
@@ -83,7 +79,7 @@ def call_bedrock(prompt: str) -> str:
             output_text = output_text[:500] + "..."
 
         logger.info("⬅️ Bedrock response (trimmed): %s", output_text)
-        return output_text.strip()
+        return output_text
 
     except Exception as e:
         logger.error("❌ Bedrock call failed: %s", e)
@@ -92,28 +88,16 @@ def call_bedrock(prompt: str) -> str:
 
 # ===== Tools =====
 def severity_tool(message: str) -> str:
-    prompt = (
-        f"Classify the severity of this incident in ONE word (High, Medium, Low) ONLY: {message}"
-    )
-    result = call_bedrock(prompt)
-    logger.info("Severity result: %s", result)
-    return result
+    prompt = f"Classify the severity of this incident in ONE word (High, Medium, Low) ONLY: {message}"
+    return call_bedrock(prompt)
 
 def summarization_tool(message: str) -> str:
-    prompt = (
-        f"Summarize this incident in ONE short sentence, concise for responders: {message}"
-    )
-    result = call_bedrock(prompt)
-    logger.info("Summary result: %s", result)
-    return result
+    prompt = f"Summarize this incident in ONE short sentence, concise for responders: {message}"
+    return call_bedrock(prompt)
 
 def citizen_guidance_tool(message: str) -> str:
-    prompt = (
-        f"Provide very brief citizen safety guidance in 1-2 sentences: {message}"
-    )
-    result = call_bedrock(prompt)
-    logger.info("Guidance result: %s", result)
-    return result
+    prompt = f"Provide very brief citizen safety guidance in 1-2 sentences: {message}"
+    return call_bedrock(prompt)
 
 # ===== API Routes =====
 @app.post("/incident")
