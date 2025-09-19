@@ -23,19 +23,28 @@ logger.info("✅ Logging configured successfully")
 
 # ===== FastAPI App =====
 app = FastAPI(title="SafeLink Agent Core - AWS Bedrock AI")
+
+# Enable CORS (dev only; restrict in production)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # dev only; restrict in production
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# ===== Logging Middleware for Debugging Paths =====
+@app.middleware("http")
+async def log_request_path(request: Request, call_next):
+    logger.info("Incoming request path: %s", request.url.path)
+    response = await call_next(request)
+    return response
+
 # ===== AWS Bedrock Client =====
 REGION = os.getenv("AWS_REGION", "us-east-2")
 MODEL_ID = os.getenv(
     "BEDROCK_MODEL_ID",
-    "us.meta.llama3-1-70b-instruct-v1:0"  # your working model
+    "us.meta.llama3-1-70b-instruct-v1:0"
 )
 BEDROCK = boto3.client("bedrock-runtime", region_name=REGION)
 logger.info("✅ Bedrock client initialized in %s", REGION)
@@ -49,12 +58,6 @@ INCIDENT_QUEUE = []
 
 # ===== Bedrock Helper =====
 def call_bedrock(prompt: str) -> str:
-    """
-    Calls AWS Bedrock Llama3-Instruct model.
-    Uses the correct key 'generation' for output text.
-    Ensures short responses via prompt instructions.
-    Trims output to 500 chars max.
-    """
     logger.info("➡️ Sending prompt to Bedrock: %s", prompt)
     try:
         body = json.dumps({"prompt": prompt})
@@ -64,17 +67,16 @@ def call_bedrock(prompt: str) -> str:
             accept="application/json",
             body=body
         )
-
         raw_output = json.loads(response["body"].read())
         logger.info("Full raw Bedrock response: %s", raw_output)
 
-        # Correct extraction
+        # Extract the generation output
         output_text = raw_output.get("generation", "").strip()
         if not output_text:
             logger.warning("Bedrock returned empty generation")
             output_text = "No response from model."
 
-        # Trim excessively long outputs
+        # Trim output to 500 chars
         if len(output_text) > 500:
             output_text = output_text[:500] + "..."
 
@@ -128,10 +130,6 @@ def health_check():
 
 @app.post("/bedrock-test")
 def bedrock_test(payload: dict):
-    """
-    Simple Bedrock test endpoint.
-    Expects JSON: {"prompt": "Your prompt here"}
-    """
     prompt = payload.get(
         "prompt",
         "Provide one short, concise safety tip for a fire incident in under 30 words."
@@ -144,6 +142,7 @@ def bedrock_test(payload: dict):
         return {"error": str(e)}
 
 # ===== Lambda Handler =====
-handler = Mangum(app)
-logger.info("Mangum handler initialized")
+# ⚡ Key Fix: api_gateway_base_path trims /default/safelink-backend for FastAPI
+handler = Mangum(app, api_gateway_base_path="/default/safelink-backend")
+logger.info("Mangum handler initialized with base path")
 logger.info("🚀 FastAPI app is ready to serve requests")
