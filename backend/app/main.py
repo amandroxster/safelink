@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from mangum import Mangum
@@ -25,7 +25,7 @@ logger.info("✅ Logging configured successfully")
 app = FastAPI(title="SafeLink Agent Core - AWS Bedrock AI")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # dev only, restrict in production
+    allow_origins=["*"],  # dev only; restrict in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -35,7 +35,7 @@ app.add_middleware(
 REGION = os.getenv("AWS_REGION", "us-east-2")
 MODEL_ID = os.getenv(
     "BEDROCK_MODEL_ID",
-    "us.meta.llama3-1-70b-instruct-v1:0"  # keep your working model
+    "us.meta.llama3-1-70b-instruct-v1:0"  # your working model
 )
 BEDROCK = boto3.client("bedrock-runtime", region_name=REGION)
 logger.info("✅ Bedrock client initialized in %s", REGION)
@@ -50,12 +50,13 @@ INCIDENT_QUEUE = []
 # ===== Bedrock Helper =====
 def call_bedrock(prompt: str) -> str:
     """
-    Calls AWS Bedrock using Llama3 Instruct.
-    Uses 'inputText' key, trims output to 500 chars.
+    Calls AWS Bedrock Llama3-Instruct model.
+    Only sends {"prompt": "..."}.
+    Trims output to 500 chars to avoid huge responses.
     """
     logger.info("➡️ Sending prompt to Bedrock: %s", prompt)
     try:
-        body = json.dumps({"inputText": prompt})  # <-- correct key
+        body = json.dumps({"prompt": prompt})  # key must be 'prompt'
         response = BEDROCK.invoke_model(
             modelId=MODEL_ID,
             contentType="application/json",
@@ -63,6 +64,7 @@ def call_bedrock(prompt: str) -> str:
             body=body
         )
         raw_output = json.loads(response["body"].read())
+        # Extract outputText safely
         output_text = raw_output.get("results", [{}])[0].get("outputText", "")
         if len(output_text) > 500:
             output_text = output_text[:500] + "..."
@@ -76,15 +78,21 @@ def call_bedrock(prompt: str) -> str:
 # ===== Tools =====
 def severity_tool(message: str) -> str:
     prompt = f"Classify the severity of this incident in ONE word (High, Medium, Low) ONLY: {message}"
-    return call_bedrock(prompt)
+    result = call_bedrock(prompt)
+    logger.info("Severity result: %s", result)
+    return result
 
 def summarization_tool(message: str) -> str:
     prompt = f"Summarize this incident in ONE short sentence, concise for responders: {message}"
-    return call_bedrock(prompt)
+    result = call_bedrock(prompt)
+    logger.info("Summary result: %s", result)
+    return result
 
 def citizen_guidance_tool(message: str) -> str:
     prompt = f"Provide very brief citizen safety guidance in 1-2 sentences: {message}"
-    return call_bedrock(prompt)
+    result = call_bedrock(prompt)
+    logger.info("Guidance result: %s", result)
+    return result
 
 # ===== API Routes =====
 @app.post("/incident")
@@ -113,9 +121,12 @@ def health_check():
     logger.info("Health check endpoint called")
     return {"status": "SafeLink Agent Core is running"}
 
-# ===== Bedrock Test Endpoint =====
 @app.post("/bedrock-test")
 def bedrock_test(payload: dict):
+    """
+    Simple Bedrock test endpoint.
+    Expects JSON: {"prompt": "Your prompt here"}
+    """
     prompt = payload.get("prompt", "Say hello from Bedrock!")
     try:
         text = call_bedrock(prompt)
