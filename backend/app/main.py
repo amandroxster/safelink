@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from mangum import Mangum
@@ -52,6 +52,7 @@ def call_bedrock(prompt: str) -> str:
     """
     Calls AWS Bedrock Llama3-Instruct model.
     Only sends {"prompt": "..."}.
+    Ensures model returns a short response.
     Trims output to 500 chars to avoid huge responses.
     """
     logger.info("➡️ Sending prompt to Bedrock: %s", prompt)
@@ -63,13 +64,27 @@ def call_bedrock(prompt: str) -> str:
             accept="application/json",
             body=body
         )
+
+        # Log full raw response for debugging
         raw_output = json.loads(response["body"].read())
-        # Extract outputText safely
-        output_text = raw_output.get("results", [{}])[0].get("outputText", "")
+        logger.info("Full raw Bedrock response: %s", raw_output)
+
+        # Safe extraction of output text
+        output_text = ""
+        if "results" in raw_output and len(raw_output["results"]) > 0:
+            output_text = raw_output["results"][0].get("outputText", "")
+
+        if not output_text:
+            logger.warning("Bedrock returned empty outputText")
+            output_text = "No response from model."
+
+        # Trim excessively long outputs
         if len(output_text) > 500:
             output_text = output_text[:500] + "..."
-        logger.info("⬅️ Bedrock response: %s", output_text)
+
+        logger.info("⬅️ Bedrock response (trimmed): %s", output_text)
         return output_text.strip()
+
     except Exception as e:
         logger.error("❌ Bedrock call failed: %s", e)
         logger.debug(traceback.format_exc())
@@ -77,19 +92,25 @@ def call_bedrock(prompt: str) -> str:
 
 # ===== Tools =====
 def severity_tool(message: str) -> str:
-    prompt = f"Classify the severity of this incident in ONE word (High, Medium, Low) ONLY: {message}"
+    prompt = (
+        f"Classify the severity of this incident in ONE word (High, Medium, Low) ONLY: {message}"
+    )
     result = call_bedrock(prompt)
     logger.info("Severity result: %s", result)
     return result
 
 def summarization_tool(message: str) -> str:
-    prompt = f"Summarize this incident in ONE short sentence, concise for responders: {message}"
+    prompt = (
+        f"Summarize this incident in ONE short sentence, concise for responders: {message}"
+    )
     result = call_bedrock(prompt)
     logger.info("Summary result: %s", result)
     return result
 
 def citizen_guidance_tool(message: str) -> str:
-    prompt = f"Provide very brief citizen safety guidance in 1-2 sentences: {message}"
+    prompt = (
+        f"Provide very brief citizen safety guidance in 1-2 sentences: {message}"
+    )
     result = call_bedrock(prompt)
     logger.info("Guidance result: %s", result)
     return result
@@ -127,7 +148,10 @@ def bedrock_test(payload: dict):
     Simple Bedrock test endpoint.
     Expects JSON: {"prompt": "Your prompt here"}
     """
-    prompt = payload.get("prompt", "Say hello from Bedrock!")
+    prompt = payload.get(
+        "prompt",
+        "Provide one short, concise safety tip for a fire incident in under 30 words."
+    )
     try:
         text = call_bedrock(prompt)
         return {"bedrock_text": text}
