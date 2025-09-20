@@ -32,6 +32,27 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+SOS_PLAYBOOKS = {
+    "Medical Emergency": [
+        "Call 911 immediately via FirstNet.",
+        "Provide exact location to dispatcher.",
+        "Begin CPR if trained.",
+        "Use AED if available and follow prompts.",
+        "Stay with the person until responders arrive."
+    ],
+    "Hazmat": [
+        "Move upwind, uphill, and upstream from the spill.",
+        "Call 911 and notify HazMat response team.",
+        "Isolate and deny entry to the affected area.",
+        "Follow command center evacuation orders."
+    ],
+    "Active Shooter": [
+        "Call 911 immediately via FirstNet.",
+        "Follow 'Run, Hide, Fight' protocol.",
+        "Provide dispatcher with number of shooters, location, and description.",
+        "Do not approach law enforcement until cleared."
+    ]
+}
 
 # ===== Logging Middleware for Debugging Paths =====
 @app.middleware("http")
@@ -107,7 +128,16 @@ def handle_incident(report: IncidentReport):
     logger.info("Received incident report: %s", report.message)
     severity = severity_tool(report.message)
     summary = summarization_tool(report.message)
-    guidance = citizen_guidance_tool(report.message)
+    #guidance = citizen_guidance_tool(report.message)
+    category = categorize_incident(report.message)
+    print(f"category: {category}")
+    sos_steps = SOS_PLAYBOOKS[category]
+    if not sos_steps:
+        sos_steps = "I am uncertain about the SOS steps. Please call 911"
+
+    prompt = build_prompt(incident_text=report.message, category=category, sop_steps=sos_steps)
+
+    guidance = call_bedrock(prompt)
 
     incident = {
         "severity": severity,
@@ -117,6 +147,35 @@ def handle_incident(report: IncidentReport):
     INCIDENT_QUEUE.append(incident)
     logger.info("Incident processed and added to queue: %s", incident)
     return incident
+
+
+def categorize_incident(text: str) -> str:
+    text_lower = text.lower()
+    if "faint" in text_lower or "collapsed" in text_lower or "not breathing" in text_lower:
+        return "Medical Emergency"
+    elif "chemical" in text_lower or "spill" in text_lower:
+        return "Hazmat"
+    elif "shoot" in text_lower or "gun" in text_lower:
+        return "Active Shooter"
+    else:
+        return "General Incident"  # fallback
+
+
+def build_prompt(incident_text: str, category: str, sop_steps: list) -> str:
+    sop_text = "\n".join([f"{i + 1}. {step}" for i, step in enumerate(sop_steps)])
+    prompt = f"""
+    You are a FirstNet public safety assistant.
+    Do NOT invent new steps. Use only the SOP steps provided below.
+
+    Incident: "{incident_text}"
+    Category: {category}
+
+    SOP Steps:
+    {sop_text}
+
+    Format the response as a checklist for the responder.
+    """
+    return prompt
 
 @app.get("/incidents")
 def get_incidents():
